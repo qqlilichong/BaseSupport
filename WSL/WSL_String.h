@@ -87,62 +87,42 @@ inline void WSL_Sstr2vector( _In_ S str, _Out_ vector< S >& vec, _In_ const C* p
 //////////////////////////////////////////////////////////////////////////
 
 // func  WSL_SstrPathFilePath
-#define  DECLARE_WSL_SstrPathFilePath( S, R )	\
-inline S WSL_SstrPathFilePath( _In_ S& str )\
-{\
-	return WSL_SstrSubflag( str, R"", R"\\", 1, 2, 1 ) ;\
-}\
-
-DECLARE_WSL_SstrPathFilePath( string,  ) ;
-DECLARE_WSL_SstrPathFilePath( wstring, L ) ;
+inline wstring WSL_SstrPathFilePath( _In_ wstring& str )
+{
+	return WSL_SstrSubflag( str, L"", L"\\", 1, 2, 1 ) ;
+}
 
 //////////////////////////////////////////////////////////////////////////
 
 // func  WSL_SstrPathFileName
-#define  DECLARE_WSL_SstrPathFileName( S, R )	\
-inline S WSL_SstrPathFileName( _In_ S& str )\
-{\
-	return WSL_SstrSubflag( str, R"\\", R".", 2, 2 ) ;\
-}\
-
-DECLARE_WSL_SstrPathFileName( string,  ) ;
-DECLARE_WSL_SstrPathFileName( wstring, L ) ;
+inline wstring WSL_SstrPathFileName( _In_ wstring& str )
+{
+	return WSL_SstrSubflag( str, L"\\", L".", 2, 2 ) ;
+}
 
 //////////////////////////////////////////////////////////////////////////
 
 // func  WSL_SstrPathFileExt
-#define  DECLARE_WSL_SstrPathFileExt( S, R )	\
-inline S WSL_SstrPathFileExt( _In_ S& str )\
-{\
-	return WSL_SstrSubflag( str, R".", R"", 2, 2 ) ;\
-}\
-	
-DECLARE_WSL_SstrPathFileExt( string,  ) ;
-DECLARE_WSL_SstrPathFileExt( wstring, L ) ;
+inline wstring WSL_SstrPathFileExt( _In_ wstring& str )
+{
+	return WSL_SstrSubflag( str, L".", L"", 2, 2 ) ;
+}
 
 //////////////////////////////////////////////////////////////////////////
 
 // func  WSL_SstrPathFileNameExt
-#define  DECLARE_WSL_SstrPathFileNameExt( S, R )	\
-inline S WSL_SstrPathFileNameExt( _In_ S& str )\
-{\
-	return WSL_SstrSubflag( str, R"\\", R"", 2, 2 ) ;\
-}\
-	
-DECLARE_WSL_SstrPathFileNameExt( string,  ) ;
-DECLARE_WSL_SstrPathFileNameExt( wstring, L ) ;
+inline wstring WSL_SstrPathFileNameExt( _In_ wstring& str )
+{
+	return WSL_SstrSubflag( str, L"\\", L"", 2, 2 ) ;
+}
 
 //////////////////////////////////////////////////////////////////////////
 
 // func  WSL_SstrPathFilePathName
-#define  DECLARE_WSL_SstrPathFilePathName( S, R )	\
-inline S WSL_SstrPathFilePathName( _In_ S& str )\
-{\
-	return WSL_SstrSubflag( str, R"", R".", 1, 2 ) ;\
-}\
-
-DECLARE_WSL_SstrPathFilePathName( string,  ) ;
-DECLARE_WSL_SstrPathFilePathName( wstring, L ) ;
+inline wstring WSL_SstrPathFilePathName( _In_ wstring& str )
+{
+	return WSL_SstrSubflag( str, L"", L".", 1, 2 ) ;
+}
 
 //////////////////////////////////////////////////////////////////////////
 

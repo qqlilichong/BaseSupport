@@ -52,37 +52,20 @@ public:
 
 //////////////////////////////////////////////////////////////////////////
 
-inline void WSL2_Free_AVFormatContext( AVFormatContext** c )
-{
-	AVFormatContext*& ptr = *c ;
-	//avformat_free_context( ptr ) ;
-	avformat_close_input( &ptr ) ;
-}
-
-Cw2AutoHandle( Cw2FFmpegAVFormatContext, AVFormatContext*, nullptr, WSL2_Free_AVFormatContext ) ;
-
+Cw2AutoHandle( Cw2FFmpegAVFormatContext, AVFormatContext*, nullptr, avformat_close_input ) ;
+Cw2AutoHandle( Cw2FFmpegAVDictionary, AVDictionary*, nullptr, av_dict_free ) ;
 Cw2AutoHandle( Cw2FFmpegAVCodecContextOpen, AVCodecContext*, nullptr, avcodec_close ) ;
 Cw2AutoHandle( Cw2FFmpegAVFrame, AVFrame*, nullptr, av_frame_free ) ;
-
 Cw2AutoHandle( Cw2FFmpegAVIOContext, AVIOContext*, nullptr, avio_close ) ;
-Cw2AutoHandle( Cw2FFmpegAVDictionary, AVDictionary*, nullptr, av_dict_free ) ;
 
 //////////////////////////////////////////////////////////////////////////
 
 class Cw2FFmpegAVIOAuto
 {
 public:
-	Cw2FFmpegAVIOAuto( AVFormatContext* ctx, const char* url, int flags = AVIO_FLAG_READ_WRITE ) : m_ctx( nullptr )
+	Cw2FFmpegAVIOAuto()
 	{
-		if ( avio_open( m_io, url, flags ) >= 0 )
-		{
-			m_ctx = ctx ;
-			m_ctx->pb = m_io ;
-			if ( avformat_write_header( m_ctx, nullptr ) != 0 )
-			{
-				FinishIO() ;
-			}
-		}
+		m_ctx = nullptr ;
 	}
 
 	~Cw2FFmpegAVIOAuto()
@@ -91,11 +74,35 @@ public:
 	}
 
 public:
+	int InitIO( AVFormatContext* ctx, const char* url, int flags = AVIO_FLAG_READ_WRITE )
+	{
+		if ( IsReady() )
+		{
+			return -1 ;
+		}
+		
+		if ( avio_open( m_io, url, flags ) >= 0 )
+		{
+			m_ctx = ctx ;
+			m_ctx->pb = m_io ;
+			if ( avformat_write_header( m_ctx, nullptr ) != 0 )
+			{
+				FinishIO() ;
+				return -1 ;
+			}
+
+			return 0 ;
+		}
+
+		return -1 ;
+	}
+
 	void FinishIO()
 	{
 		if ( m_ctx )
 		{
 			av_write_trailer( m_ctx ) ;
+			m_ctx->pb = nullptr ;
 			m_ctx = nullptr ;
 		}
 
@@ -118,8 +125,8 @@ public:
 	}
 
 private:
-	Cw2FFmpegAVIOContext	m_io ;
-	AVFormatContext*		m_ctx ;
+	Cw2FFmpegAVIOContext	m_io	;
+	AVFormatContext*		m_ctx	;
 };
 
 //////////////////////////////////////////////////////////////////////////

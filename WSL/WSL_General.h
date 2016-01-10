@@ -89,30 +89,31 @@ inline bool timedur( double time_start, double time_now, double& time_duration )
 
 //////////////////////////////////////////////////////////////////////////
 
-class CwVa_List : public CwLocalAllocer< _TCHAR* >
-{
-public:
-	CwVa_List() {}
-	CwVa_List( _In_ const _TCHAR*& format ) { FmtCore( format ) ; }
-	inline int Fmt( _In_ const _TCHAR* format, ... ) { return FmtCore( format ) ; }
-
-protected:
-	inline int FmtCore( _In_ const _TCHAR*& format )
-	{
-		int nErr = -1 ;
-		va_list args ;
-		va_start( args, format ) ;
-		
-		const int nNeedLen = _vsctprintf_p( format, args ) + 1 ;
-		if ( Alloc( TCLEN2SIZE( nNeedLen ) ) )
-		{
-			nErr = _vstprintf( *this, nNeedLen, format, args ) ;
-		}
-		
-		va_end( args ) ;
-		return nErr ;
-	}
-};
+// class CwVa_List : public CwLocalAllocer< wchar_t* >
+// {
+// public:
+// 	CwVa_List() {}
+// 	CwVa_List( _In_ const wchar_t*& format ) { FmtCore( format ) ; }
+// 	inline int Fmt( _In_ const wchar_t* format, ... ) { return FmtCore( format ) ; }
+// 
+// 	inline int Fmt( _In_ const wchar_t* format, ... )
+// 	{
+// 		int nErr = -1 ;
+// 		va_list args ;
+// 		va_start( args, format ) ;
+// 		
+// 		const int nNeedLen = _vsctprintf_p( format, args ) + 1 ;
+// 		if ( Alloc( TCLEN2SIZE( nNeedLen ) ) )
+// 		{
+// 			nErr = _vstprintf( *this, nNeedLen, format, args ) ;
+// 		}
+// 		
+// 		va_end( args ) ;
+// 		return nErr ;
+// 
+// 		return 0 ;
+// 	}
+// };
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -158,149 +159,150 @@ inline string WSL_String2A( _In_ const wchar_t* str )
 #define __WDBG_ADD( x )		__WDBG_ADD2( x )
 #define __WDBG_MSG()		( __FILE__ "(" __WDBG_ADD(__LINE__) "): " )
 
-inline wstring WSL_ErrMsg( DWORD dwErr = 0 )
-{
-	if ( dwErr == 0 )
-	{
-		dwErr = GetLastError() ;
-	}
-	
-	// Format error message.
-	CwLocal fmErr ;
-	FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER 
-		| FORMAT_MESSAGE_FROM_SYSTEM 
-		| FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL,
-		dwErr,
-		MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),
-		(LPTSTR)&fmErr, 0, NULL ) ;
-	
-	CwVa_List msg ;
-	msg.Fmt( TEXT( "%u : %s" ), dwErr, fmErr ) ;
-	return (wchar_t*)msg ;
-}
+// inline wstring WSL_ErrMsg( DWORD dwErr = 0 )
+// {
+// 	if ( dwErr == 0 )
+// 	{
+// 		dwErr = GetLastError() ;
+// 	}
+// 	
+// 	// Format error message.
+// 	CwLocal fmErr ;
+// 	FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER 
+// 		| FORMAT_MESSAGE_FROM_SYSTEM 
+// 		| FORMAT_MESSAGE_IGNORE_INSERTS,
+// 		NULL,
+// 		dwErr,
+// 		MAKELANGID( LANG_NEUTRAL, SUBLANG_DEFAULT ),
+// 		(LPTSTR)&fmErr, 0, NULL ) ;
+// 	
+// 	CwVa_List msg ;
+// 	msg.Fmt( TEXT( "%u : %s" ), dwErr, fmErr ) ;
+// 	return (wchar_t*)msg ;
+// }
 
 inline void WSL_DbgMsg( const char* pszDBG, _In_ const wchar_t* format, ... )
 {
 	wstring strDBG = WSL_String2W( pszDBG ) ;
-	CwVa_List func( format ) ;
-	
-	CwVa_List msg ;
-	msg.Fmt( L"< %s%s >\n", strDBG.c_str(), func ) ;
-	
-	OutputDebugString( msg ) ;
-	fwprintf_s( stderr, msg ) ;
+// 	CwVa_List func ;
+// 	func.Fmt( L"%s", s )
+// 	
+// 	CwVa_List msg ;
+// 	msg.Fmt( L"< %s%s >\n", strDBG.c_str(), func ) ;
+// 	
+// 	OutputDebugString( msg ) ;
+// 	fwprintf_s( stderr, msg ) ;
 }
 
 #define WDBG( ... )		WSL_DbgMsg( __WDBG_MSG(), __VA_ARGS__ )
 
 //////////////////////////////////////////////////////////////////////////
 
-template< DWORD CF, BOOL INH >
-bool WSL_CreateProc( _In_opt_ LPSTARTUPINFOW lpStartupInfo,
-					_In_opt_ LPPROCESS_INFORMATION lpProcessInformation,
-					_Inout_opt_ LPDWORD lpExitCode,
-					_In_ LPCTSTR format, ... )
-{
-	PROCESS_INFORMATION pi = { 0 } ;
-	STARTUPINFO si = { 0 } ;
-	si.cb = sizeof( si ) ;
-	lpStartupInfo = ( lpStartupInfo == NULL ? &si : lpStartupInfo ) ;
-	lpProcessInformation = ( lpProcessInformation == NULL ? &pi : lpProcessInformation ) ;
-	
-	CwVa_List szCMD( format ) ;
+// template< DWORD CF, BOOL INH >
+// bool WSL_CreateProc( _In_opt_ LPSTARTUPINFOW lpStartupInfo,
+// 					_In_opt_ LPPROCESS_INFORMATION lpProcessInformation,
+// 					_Inout_opt_ LPDWORD lpExitCode,
+// 					_In_ LPCTSTR format, ... )
+// {
+// 	PROCESS_INFORMATION pi = { 0 } ;
+// 	STARTUPINFO si = { 0 } ;
+// 	si.cb = sizeof( si ) ;
+// 	lpStartupInfo = ( lpStartupInfo == NULL ? &si : lpStartupInfo ) ;
+// 	lpProcessInformation = ( lpProcessInformation == NULL ? &pi : lpProcessInformation ) ;
+// 	
+// 	CwVa_List szCMD( format ) ;
+// 
+// #ifdef _DEBUG
+// 	
+// 	OutputDebugString( szCMD ) ;
+// 	OutputDebugString( TEXT( "\n" ) ) ;
+// 
+// #endif // _DEBUG
+// 	
+// 	if ( !CreateProcess( NULL, szCMD, NULL, NULL, INH, CF, NULL, NULL, lpStartupInfo, lpProcessInformation ) )
+// 	{
+// 		return false ;
+// 	}
+// 	
+// 	CloseHandle( lpProcessInformation->hThread ) ;
+// 	lpProcessInformation->hThread = NULL ;
+// 	if ( lpExitCode != NULL )
+// 	{
+// 		WaitForSingleObject( lpProcessInformation->hProcess, *lpExitCode ) ;
+// 		GetExitCodeProcess( lpProcessInformation->hProcess, lpExitCode ) ;
+// 	}
+// 	
+// 	CloseHandle( lpProcessInformation->hProcess ) ;
+// 	lpProcessInformation->hProcess= NULL ;
+// 	return true ;
+// }
 
-#ifdef _DEBUG
-	
-	OutputDebugString( szCMD ) ;
-	OutputDebugString( TEXT( "\n" ) ) ;
-
-#endif // _DEBUG
-	
-	if ( !CreateProcess( NULL, szCMD, NULL, NULL, INH, CF, NULL, NULL, lpStartupInfo, lpProcessInformation ) )
-	{
-		return false ;
-	}
-	
-	CloseHandle( lpProcessInformation->hThread ) ;
-	lpProcessInformation->hThread = NULL ;
-	if ( lpExitCode != NULL )
-	{
-		WaitForSingleObject( lpProcessInformation->hProcess, *lpExitCode ) ;
-		GetExitCodeProcess( lpProcessInformation->hProcess, lpExitCode ) ;
-	}
-	
-	CloseHandle( lpProcessInformation->hProcess ) ;
-	lpProcessInformation->hProcess= NULL ;
-	return true ;
-}
-
-template< DWORD CF, BOOL INH >
-BOOL WSL_CreateEXE( _In_opt_ LPPROCESS_INFORMATION lpProcessInformation, _In_ LPCTSTR format, ... )
-{
-	STARTUPINFO si = { 0 } ;
-	si.cb = sizeof( si ) ;
-	
-	CwVa_List szCMD( format ) ;
-
-#ifdef _DEBUG
-
-	OutputDebugString( szCMD ) ;
-	OutputDebugString( TEXT( "\n" ) ) ;
-
-#endif // _DEBUG
-	
-	return CreateProcess( NULL, szCMD, NULL, NULL, INH, CF, NULL, NULL, &si, lpProcessInformation ) ;
-}
+// template< DWORD CF, BOOL INH >
+// BOOL WSL_CreateEXE( _In_opt_ LPPROCESS_INFORMATION lpProcessInformation, _In_ LPCTSTR format, ... )
+// {
+// 	STARTUPINFO si = { 0 } ;
+// 	si.cb = sizeof( si ) ;
+// 	
+// 	CwVa_List szCMD( format ) ;
+// 
+// #ifdef _DEBUG
+// 
+// 	OutputDebugString( szCMD ) ;
+// 	OutputDebugString( TEXT( "\n" ) ) ;
+// 
+// #endif // _DEBUG
+// 	
+// 	return CreateProcess( NULL, szCMD, NULL, NULL, INH, CF, NULL, NULL, &si, lpProcessInformation ) ;
+// }
 
 //////////////////////////////////////////////////////////////////////////
 
-inline bool WSL_ProcStdIO( _In_ LPTSTR pszCMD,
-						  _Out_opt_ LPDWORD lpExitCode = NULL,
-						  _In_opt_ HANDLE hStdOutput = NULL,
-						  _In_opt_ HANDLE hStdInput = NULL,
-						  _In_opt_ HANDLE hStdError = NULL )
-{
-	PROCESS_INFORMATION pi = { 0 } ;
-	STARTUPINFO si = { 0 } ;
-	si.cb = sizeof( si ) ;
-	si.hStdOutput = hStdOutput ;
-	si.hStdInput = hStdInput ;
-	si.hStdError = hStdError ;
-	si.dwFlags |= STARTF_USESTDHANDLES ;
-	DWORD dwExitCode = INFINITE ;
-	if ( !WSL_CreateProc< CREATE_NO_WINDOW, TRUE >( &si, &pi, &dwExitCode, pszCMD ) )
-	{
-		return false ;
-	}
+// inline bool WSL_ProcStdIO( _In_ LPTSTR pszCMD,
+// 						  _Out_opt_ LPDWORD lpExitCode = NULL,
+// 						  _In_opt_ HANDLE hStdOutput = NULL,
+// 						  _In_opt_ HANDLE hStdInput = NULL,
+// 						  _In_opt_ HANDLE hStdError = NULL )
+// {
+// 	PROCESS_INFORMATION pi = { 0 } ;
+// 	STARTUPINFO si = { 0 } ;
+// 	si.cb = sizeof( si ) ;
+// 	si.hStdOutput = hStdOutput ;
+// 	si.hStdInput = hStdInput ;
+// 	si.hStdError = hStdError ;
+// 	si.dwFlags |= STARTF_USESTDHANDLES ;
+// 	DWORD dwExitCode = INFINITE ;
+// 	if ( !WSL_CreateProc< CREATE_NO_WINDOW, TRUE >( &si, &pi, &dwExitCode, pszCMD ) )
+// 	{
+// 		return false ;
+// 	}
+// 
+// 	if ( lpExitCode != NULL )
+// 	{
+// 		*lpExitCode = dwExitCode ;
+// 	}
+// 	
+// 	return true ;
+// }
 
-	if ( lpExitCode != NULL )
-	{
-		*lpExitCode = dwExitCode ;
-	}
-	
-	return true ;
-}
-
-inline bool WSL_ReadProcStdoutAndStderr( _Out_ wstring& strOutput, _Out_opt_ LPDWORD lpExitCode, _In_ LPCTSTR format, ... )
-{
-	CwPipe pipeStdoutAndStderr ;
-	
-	CwVa_List szCMD( format ) ;
-	if ( !WSL_ProcStdIO( szCMD, lpExitCode, pipeStdoutAndStderr, NULL, pipeStdoutAndStderr ) )
-	{
-		return false ;
-	}
-	
-	pipeStdoutAndStderr.FreeWrite() ;
-	if ( !pipeStdoutAndStderr.Read() )
-	{
-		return false ;
-	}
-	
-	strOutput = WSL_String2W( pipeStdoutAndStderr ) ;
-	return true ;
-}
+// inline bool WSL_ReadProcStdoutAndStderr( _Out_ wstring& strOutput, _Out_opt_ LPDWORD lpExitCode, _In_ LPCTSTR format, ... )
+// {
+// 	CwPipe pipeStdoutAndStderr ;
+// 	
+// 	CwVa_List szCMD( format ) ;
+// 	if ( !WSL_ProcStdIO( szCMD, lpExitCode, pipeStdoutAndStderr, NULL, pipeStdoutAndStderr ) )
+// 	{
+// 		return false ;
+// 	}
+// 	
+// 	pipeStdoutAndStderr.FreeWrite() ;
+// 	if ( !pipeStdoutAndStderr.Read() )
+// 	{
+// 		return false ;
+// 	}
+// 	
+// 	strOutput = WSL_String2W( pipeStdoutAndStderr ) ;
+// 	return true ;
+// }
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -359,102 +361,102 @@ inline bool WSL_ListTheFiles( _Out_ vector< wstring >& vecResults,_In_ const wch
 
 //////////////////////////////////////////////////////////////////////////
 
-class CwProfileIni
-{
-public:
-	CwProfileIni()
-	{
-		m_strProfile = WSL_ModuleFileName() ;
-		m_strProfile = WSL_SstrPathFilePathName( m_strProfile ) ;
-		m_strProfile += L".ini" ;
-	}
-
-	void InitProfile( _In_ const wchar_t* pszProfile )
-	{
-		m_strProfile = pszProfile ;
-	}
-
-	void InitAddProfile( _In_ const wchar_t* pszAddProfile )
-	{
-		m_strProfile = WSL_ModuleFileName() ;
-		m_strProfile = WSL_SstrPathFilePath( m_strProfile ) ;
-		m_strProfile += pszAddProfile ;
-	}
-
-	wstring GetStr( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_opt_ const wchar_t* pszDefault = NULL )
-	{
-		wchar_t szRet[ 2048 ] = { 0 } ;
-		GetPrivateProfileStringW( pszSession, pszKey, pszDefault, szRet, _countof( szRet ), m_strProfile.c_str() ) ;
-		return szRet ;
-	}
-	
-	wstring GetStr2( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_opt_ const wchar_t* pszDefault = NULL )
-	{
-		wchar_t szRet[ 2048 ] = { 0 } ;
-		GetPrivateProfileStringW( pszSession, pszKey, pszDefault, szRet, _countof( szRet ), m_strProfile.c_str() ) ;
-		SetStr( pszSession, pszKey, szRet ) ;
-		return szRet ;
-	}
-
-	BOOL SetStr( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ const wchar_t* pszValue )
-	{
-		return WritePrivateProfileStringW( pszSession, pszKey, pszValue, m_strProfile.c_str() ) ;
-	}
-
-	int GetInt( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ int nDefault )
-	{
-		return GetPrivateProfileIntW( pszSession, pszKey, nDefault, m_strProfile.c_str() ) ;
-	}
-
-	int GetInt2( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ int nDefault )
-	{
-		nDefault = GetPrivateProfileIntW( pszSession, pszKey, nDefault, m_strProfile.c_str() ) ;
-		SetInt( pszSession, pszKey, nDefault ) ;
-		return nDefault ;
-	}
-
-	BOOL SetInt( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ int nValue )
-	{
-		CwVa_List vData ;
-		vData.Fmt( L"%d", nValue ) ;
-		return SetStr( pszSession, pszKey, vData ) ;
-	}
-
-	BOOL EnumSectionNames( vector< wstring >& vNames )
-	{
-		const DWORD dwFileSize = GetCompressedFileSize( m_strProfile.c_str(), NULL ) ;
-		if ( dwFileSize == INVALID_FILE_SIZE )
-		{
-			return FALSE ;
-		}
-
-		CwLocalAllocer< wchar_t* > buffer ;
-		if ( !buffer.Alloc( sizeof( wchar_t ) * dwFileSize ) )
-		{
-			return FALSE ;
-		}
-
-		GetPrivateProfileSectionNames( buffer, dwFileSize, m_strProfile.c_str() ) ;
-		
-		wchar_t* pBuffer = buffer ;
-		int nIndex = 0 ;
-		while ( pBuffer[ nIndex ] != 0 )
-		{
-			vNames.push_back( pBuffer + nIndex ) ;
-			nIndex += wcslen( pBuffer + nIndex ) + 1 ;
-		}
-		
-		return TRUE ;
-	}
-	
-	const wchar_t* GetProfile()
-	{
-		return m_strProfile.c_str() ;
-	}
-
-private:
-	wstring	m_strProfile ;
-};
+// class CwProfileIni
+// {
+// public:
+// 	CwProfileIni()
+// 	{
+// 		m_strProfile = WSL_ModuleFileName() ;
+// 		m_strProfile = WSL_SstrPathFilePathName( m_strProfile ) ;
+// 		m_strProfile += L".ini" ;
+// 	}
+// 
+// 	void InitProfile( _In_ const wchar_t* pszProfile )
+// 	{
+// 		m_strProfile = pszProfile ;
+// 	}
+// 
+// 	void InitAddProfile( _In_ const wchar_t* pszAddProfile )
+// 	{
+// 		m_strProfile = WSL_ModuleFileName() ;
+// 		m_strProfile = WSL_SstrPathFilePath( m_strProfile ) ;
+// 		m_strProfile += pszAddProfile ;
+// 	}
+// 
+// 	wstring GetStr( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_opt_ const wchar_t* pszDefault = NULL )
+// 	{
+// 		wchar_t szRet[ 2048 ] = { 0 } ;
+// 		GetPrivateProfileStringW( pszSession, pszKey, pszDefault, szRet, _countof( szRet ), m_strProfile.c_str() ) ;
+// 		return szRet ;
+// 	}
+// 	
+// 	wstring GetStr2( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_opt_ const wchar_t* pszDefault = NULL )
+// 	{
+// 		wchar_t szRet[ 2048 ] = { 0 } ;
+// 		GetPrivateProfileStringW( pszSession, pszKey, pszDefault, szRet, _countof( szRet ), m_strProfile.c_str() ) ;
+// 		SetStr( pszSession, pszKey, szRet ) ;
+// 		return szRet ;
+// 	}
+// 
+// 	BOOL SetStr( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ const wchar_t* pszValue )
+// 	{
+// 		return WritePrivateProfileStringW( pszSession, pszKey, pszValue, m_strProfile.c_str() ) ;
+// 	}
+// 
+// 	int GetInt( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ int nDefault )
+// 	{
+// 		return GetPrivateProfileIntW( pszSession, pszKey, nDefault, m_strProfile.c_str() ) ;
+// 	}
+// 
+// 	int GetInt2( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ int nDefault )
+// 	{
+// 		nDefault = GetPrivateProfileIntW( pszSession, pszKey, nDefault, m_strProfile.c_str() ) ;
+// 		SetInt( pszSession, pszKey, nDefault ) ;
+// 		return nDefault ;
+// 	}
+// 
+// 	BOOL SetInt( _In_ const wchar_t* pszSession, _In_ const wchar_t* pszKey, _In_ int nValue )
+// 	{
+// 		CwVa_List vData ;
+// 		vData.Fmt( L"%d", nValue ) ;
+// 		return SetStr( pszSession, pszKey, vData ) ;
+// 	}
+// 
+// 	BOOL EnumSectionNames( vector< wstring >& vNames )
+// 	{
+// 		const DWORD dwFileSize = GetCompressedFileSize( m_strProfile.c_str(), NULL ) ;
+// 		if ( dwFileSize == INVALID_FILE_SIZE )
+// 		{
+// 			return FALSE ;
+// 		}
+// 
+// 		CwLocalAllocer< wchar_t* > buffer ;
+// 		if ( !buffer.Alloc( sizeof( wchar_t ) * dwFileSize ) )
+// 		{
+// 			return FALSE ;
+// 		}
+// 
+// 		GetPrivateProfileSectionNames( buffer, dwFileSize, m_strProfile.c_str() ) ;
+// 		
+// 		wchar_t* pBuffer = buffer ;
+// 		int nIndex = 0 ;
+// 		while ( pBuffer[ nIndex ] != 0 )
+// 		{
+// 			vNames.push_back( pBuffer + nIndex ) ;
+// 			nIndex += wcslen( pBuffer + nIndex ) + 1 ;
+// 		}
+// 		
+// 		return TRUE ;
+// 	}
+// 	
+// 	const wchar_t* GetProfile()
+// 	{
+// 		return m_strProfile.c_str() ;
+// 	}
+// 
+// private:
+// 	wstring	m_strProfile ;
+// };
 
 //////////////////////////////////////////////////////////////////////////
 

@@ -429,7 +429,8 @@ public:
 	}
 
 public:
-	int Init( const char* url, int width, int height, int bitrate = 800000, int framerate = 30 )
+	int Init( const char* url, int width, int height,
+		int bitrate = 800000, const char* preset = "ultrafast", int framerate = 30 )
 	{
 		if ( !m_avfc_file.InvalidHandle() )
 		{
@@ -479,7 +480,11 @@ public:
 			Cw2FFmpegAVDictionary encoder_options ;
 			if ( encoder_video->codec_id == AV_CODEC_ID_H264 )
 			{
-				av_dict_set( encoder_options, "preset", "ultrafast", 0 ) ;
+				if ( preset )
+				{
+					av_dict_set( encoder_options, "preset", preset, 0 ) ;
+				}
+				
 				av_dict_set( encoder_options, "tune", "zerolatency", 0 ) ;
 			}
 

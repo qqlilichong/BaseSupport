@@ -430,7 +430,9 @@ public:
 
 public:
 	int Init( const char* url, int width, int height,
-		int bitrate = 800000, const char* preset = "ultrafast", int framerate = 30 )
+		int bitrate = 800000,
+		const char* preset = "ultrafast",
+		const char* crf = nullptr )
 	{
 		if ( !m_avfc_file.InvalidHandle() )
 		{
@@ -463,7 +465,7 @@ public:
 			encoder_video->width = width ;
 			encoder_video->height = height ;
 			encoder_video->time_base.num = 1 ;
-			encoder_video->time_base.den = framerate ;
+			encoder_video->time_base.den = 30 ;
 			encoder_video->bit_rate = bitrate ;
 			encoder_video->gop_size = 250 ;
 			encoder_video->me_range = 16 ;
@@ -473,7 +475,7 @@ public:
 			encoder_video->qmax = 51 ;
 			encoder_video->max_b_frames = 3 ;
 			encoder_video->flags |= CODEC_FLAG_GLOBAL_HEADER ;
-
+			
 			stream_video->time_base = encoder_video->time_base ;
 			encoder_video->opaque = stream_video ;
 
@@ -482,12 +484,25 @@ public:
 			{
 				if ( preset )
 				{
+					// ultrafast,superfast,veryfast,faster,fast,medium,slow,slower,veryslow,placebo
 					av_dict_set( encoder_options, "preset", preset, 0 ) ;
 				}
-				
-				av_dict_set( encoder_options, "tune", "zerolatency", 0 ) ;
-			}
 
+				if ( crf )
+				{
+					// 0 - 51
+					av_dict_set( encoder_options, "crf", crf, 0 ) ;
+				}
+
+				// film,animation,grain,stillimage,psnr,ssim,fastdecode,zerolantency
+				av_dict_set( encoder_options, "tune", "zerolatency", 0 ) ;
+				
+				// av_dict_set( encoder_options, "qp", "0", 0 ) ;
+				
+				// --profile
+				// baseline,main.high,high10,high422,high444
+			}
+			
 			if ( avcodec_open2( encoder_video, avcodec_find_encoder( encoder_video->codec_id ), encoder_options ) != 0 )
 			{
 				throw -1 ;
@@ -827,12 +842,12 @@ private:
 		D3DFORMAT d3dfmt = D3DFMT_UNKNOWN ;
 		switch ( frame->format )
 		{
-		case AV_PIX_FMT_YUYV422 :
-			d3dfmt = D3DFMT_YUY2 ;
-			break ;
+			case AV_PIX_FMT_YUYV422 :
+				d3dfmt = D3DFMT_YUY2 ;
+				break ;
 
-		default :
-			return 0 ;
+			default :
+				return 0 ;
 		}
 
 		CComQIPtr< IDirect3DSurface9 > surface ;
@@ -843,7 +858,7 @@ private:
 
 		switch ( d3dfmt )
 		{
-		case D3DFMT_YUY2 :
+			case D3DFMT_YUY2 :
 			{
 				D3DLOCKED_RECT d3dlr = { 0 } ;
 				if ( surface->LockRect( &d3dlr, NULL, D3DLOCK_DONOTWAIT ) == 0 )
@@ -898,24 +913,13 @@ public:
 	}
 
 public:
-	int OpenCam( const char* cam_id,
-		const int width,
-		const int height,
-		const int framerate = 0,
-		const char* _p = "yuyv422" )
+	int OpenCam( const char* cam_id, const int width, const int height, const char* _p = "yuyv422" )
 	{
 		if ( m_avfc_cam.InvalidHandle() && m_vdecoder_cam.InvalidHandle() )
 		{
 			auto _s = WSL2_String_FormatA( "%dx%d", width, height ) ;
 
-			auto fr = WSL2_String_FormatA( "%d", framerate ) ;
-			auto _r = fr.c_str() ;
-			if ( framerate == 0 )
-			{
-				_r = nullptr ;
-			}
-
-			if ( OpenCam( cam_id, _s.c_str(), _r, _p ) == 0 )
+			if ( OpenCam( cam_id, _s.c_str(), _p ) == 0 )
 			{
 				m_engine.EngineStart() ;
 				return 0 ;
@@ -942,7 +946,7 @@ private:
 	}
 
 private:
-	int OpenCam( const char* cam_id, const char* _s, const char* _r, const char* _p )
+	int OpenCam( const char* cam_id, const char* _s, const char* _p )
 	{
 		auto& vdecoder_cam = m_vdecoder_cam ;
 		auto& avfc_cam = m_avfc_cam ;
@@ -962,19 +966,14 @@ private:
 				av_dict_set( avif_options, "video_size", _s, 0 ) ;
 			}
 
-			if ( _r )
-			{
-				av_dict_set( avif_options, "framerate", _r, 0 ) ;
-			}
+			// av_dict_set( avif_options, "framerate", _r, 0 ) ;
 
 			if ( _p )
 			{
 				av_dict_set( avif_options, "pixel_format", _p, 0 ) ;
 			}
-
-			if ( avformat_open_input( avfc_cam,
-				WSL2_String_FormatA( "video=%s", cam_id ).c_str(),
-				avif_dshow_ptr, avif_options ) != 0 )
+			
+			if ( avformat_open_input( avfc_cam, WSL2_String_FormatA( "video=%s", cam_id ).c_str(), avif_dshow_ptr, avif_options ) != 0 )
 			{
 				throw -1 ;
 			}

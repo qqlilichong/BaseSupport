@@ -6,6 +6,7 @@ extern "C"
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
+#include <libavutil/audio_fifo.h>
 #include <libavutil/imgutils.h>
 #include <libavdevice/avdevice.h>
 #include <libswscale/swscale.h>
@@ -57,6 +58,7 @@ Cw2AutoHandle( Cw2FFmpegAVDictionary, AVDictionary*, nullptr, av_dict_free ) ;
 Cw2AutoHandle( Cw2FFmpegAVCodecContextOpen, AVCodecContext*, nullptr, avcodec_close ) ;
 Cw2AutoHandle( Cw2FFmpegAVFrame, AVFrame*, nullptr, av_frame_free ) ;
 Cw2AutoHandle( Cw2FFmpegAVIOContext, AVIOContext*, nullptr, avio_close ) ;
+Cw2AutoHandle( Cw2FFmpegAVAudioFifo, AVAudioFifo*, nullptr, av_audio_fifo_free ) ;
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -333,7 +335,8 @@ __interface IW2_FFSINK
 {
 	virtual int OnAVFrame( Cw2FFmpegAVFrame& frame ) = 0 ;
 	virtual int OnRenderUpdate( IDirect3DDevice9* pRender, LPRECT pDst, LPRECT pSrc ) = 0 ;
-	virtual int OnSurfaceReady( IDirect3DSurface9* pSurface, Cw2TickCount& tc ) = 0 ;
+	virtual int OnSurfaceReady( IDirect3DSurface9* pSurface ) = 0 ;
+	virtual int OnAudioReady( Cw2FFmpegAVAudioFifo& fifo ) = 0 ;
 };
 
 class Cw2FFSink : public IW2_FFSINK
@@ -349,7 +352,12 @@ public:
 		return -1 ;
 	}
 
-	virtual int OnSurfaceReady( IDirect3DSurface9* pSurface, Cw2TickCount& tc )
+	virtual int OnSurfaceReady( IDirect3DSurface9* pSurface )
+	{
+		return -1 ;
+	}
+
+	virtual int OnAudioReady( Cw2FFmpegAVAudioFifo& fifo )
 	{
 		return -1 ;
 	}
@@ -378,6 +386,12 @@ public:
 		}
 	}
 
+	int GetSinkSize()
+	{
+		Cw2AutoLock< decltype( m_lock ) > lock( &m_lock ) ;
+		return m_list.size() ;
+	}
+
 	void Invoke_OnAVFrame( Cw2FFmpegAVFrame& frame )
 	{
 		Cw2AutoLock< decltype( m_lock ) > lock( &m_lock ) ;
@@ -398,13 +412,23 @@ public:
 		}
 	}
 
-	void Invoke_OnSurfaceReady( IDirect3DSurface9* pSurface, Cw2TickCount& tc )
+	void Invoke_OnSurfaceReady( IDirect3DSurface9* pSurface )
 	{
 		Cw2AutoLock< decltype( m_lock ) > lock( &m_lock ) ;
 
 		for ( auto& sink : m_list )
 		{
-			sink->OnSurfaceReady( pSurface, tc ) ;
+			sink->OnSurfaceReady( pSurface ) ;
+		}
+	}
+
+	void Invoke_OnAudioReady( Cw2FFmpegAVAudioFifo& fifo )
+	{
+		Cw2AutoLock< decltype( m_lock ) > lock( &m_lock ) ;
+
+		for ( auto& sink : m_list )
+		{
+			sink->OnAudioReady( fifo ) ;
 		}
 	}
 
@@ -420,47 +444,50 @@ class Cw2FileEncoder : public Cw2FFSink
 public:
 	Cw2FileEncoder()
 	{
-
+		m_audio_pts = 0 ;
+		m_video_pts.TickStart() ;
 	}
-
+	
 	~Cw2FileEncoder()
 	{
 		Uninit() ;
 	}
 
 public:
-	int Init( const char* url, int width, int height,
-		int bitrate = 800000,
-		const char* preset = "ultrafast",
-		const char* crf = nullptr )
+	int OpenFile( const char* url )
 	{
-		if ( !m_avfc_file.InvalidHandle() )
-		{
-			return -1 ;
-		}
-
 		Cw2FFmpegAVFormatContext& avfc_file = m_avfc_file ;
-		Cw2FFmpegAVCodecContextOpen& encoder_video = m_encoder_video ;
-		Cw2FFmpegAVIOAuto& io_file = m_io_file ;
 
-		try
+		if ( avfc_file.InvalidHandle() )
 		{
 			avfc_file = avformat_alloc_context() ;
 			avfc_file->oformat = av_guess_format( nullptr, url, nullptr ) ;
 			if ( avfc_file->oformat == nullptr )
 			{
-				throw -1 ;
+				return -1 ;
 			}
 
-			auto stream_video = avformat_new_stream( avfc_file, 0 ) ;
+			return 0 ;
+		}
+
+		return -1 ;
+	}
+
+	int AddVideoStream( int width, int height, int bitrate, map< string, string >* options )
+	{
+		Cw2FFmpegAVFormatContext& avfc_file = m_avfc_file ;
+		Cw2FFmpegAVCodecContextOpen& encoder_video = m_encoder_video ;
+
+		if ( encoder_video.InvalidHandle() )
+		{
+			auto codec_video = avcodec_find_encoder( AV_CODEC_ID_H264 ) ;
+			auto stream_video = avformat_new_stream( avfc_file, codec_video ) ;
 			if ( stream_video == nullptr )
 			{
-				throw -1 ;
+				return -1 ;
 			}
 
 			encoder_video = stream_video->codec ;
-			encoder_video->codec_id = AV_CODEC_ID_H264 ;
-			encoder_video->codec_type = AVMEDIA_TYPE_VIDEO ;
 			encoder_video->pix_fmt = AV_PIX_FMT_YUV420P ;
 			encoder_video->width = width ;
 			encoder_video->height = height ;
@@ -475,67 +502,153 @@ public:
 			encoder_video->qmax = 51 ;
 			encoder_video->max_b_frames = 3 ;
 			encoder_video->flags |= CODEC_FLAG_GLOBAL_HEADER ;
-			
+
 			stream_video->time_base = encoder_video->time_base ;
 			encoder_video->opaque = stream_video ;
-
+			
 			Cw2FFmpegAVDictionary encoder_options ;
-			if ( encoder_video->codec_id == AV_CODEC_ID_H264 )
+			if ( options )
 			{
-				if ( preset )
+				for ( auto& i : *options )
 				{
-					// ultrafast,superfast,veryfast,faster,fast,medium,slow,slower,veryslow,placebo
-					av_dict_set( encoder_options, "preset", preset, 0 ) ;
+					av_dict_set( encoder_options, i.first.c_str(), i.second.c_str(), 0 ) ;
 				}
 
-				if ( crf )
-				{
-					// 0 - 51
-					av_dict_set( encoder_options, "crf", crf, 0 ) ;
-				}
+				// preset
+				// ultrafast superfast veryfast faster fast medium slow slower veryslow placebo
 
-				// film,animation,grain,stillimage,psnr,ssim,fastdecode,zerolantency
-				av_dict_set( encoder_options, "tune", "zerolatency", 0 ) ;
-				
-				// av_dict_set( encoder_options, "qp", "0", 0 ) ;
-				
-				// --profile
+				// crf
+				// 0 - 51
+
+				// tune
+				// film animation grain stillimage psnr ssim fastdecode zerolatency
+
+				// qp
+				// 0
+
+				// profile
 				// baseline,main.high,high10,high422,high444
 			}
-			
-			if ( avcodec_open2( encoder_video, avcodec_find_encoder( encoder_video->codec_id ), encoder_options ) != 0 )
-			{
-				throw -1 ;
-			}
 
-			if ( io_file.InitIO( avfc_file, url ) != 0 )
+			if ( avcodec_open2( encoder_video, codec_video, encoder_options ) != 0 )
 			{
-				throw -1 ;
+				return -1 ;
 			}
 		}
 
-		catch ( ... )
-		{
-			Uninit() ;
-			return -1 ;
-		}
-
+		m_video_pts.TickStart() ;
 		return 0 ;
+	}
+	
+	int AddAudioStream( AVCodecContext* decoder_audio_ptr, int bitrate, map< string, string >* options )
+	{
+		Cw2FFmpegAVFormatContext& avfc_file = m_avfc_file ;
+		Cw2FFmpegAVCodecContextOpen& encoder_audio = m_encoder_audio ;
+		
+		if ( encoder_audio.InvalidHandle() )
+		{
+			auto codec_audio = avcodec_find_encoder( AV_CODEC_ID_AAC ) ;
+			auto stream_audio = avformat_new_stream( avfc_file, codec_audio ) ;
+			if ( stream_audio == nullptr )
+			{
+				return -1 ;
+			}
+
+			encoder_audio = stream_audio->codec ;
+			encoder_audio->channels = decoder_audio_ptr->channels ;
+			encoder_audio->channel_layout = av_get_default_channel_layout( encoder_audio->channels ) ;
+			encoder_audio->sample_rate = decoder_audio_ptr->sample_rate ;
+			encoder_audio->sample_fmt = decoder_audio_ptr->sample_fmt ;
+			encoder_audio->bit_rate = bitrate ;
+			encoder_audio->flags |= AV_CODEC_FLAG_GLOBAL_HEADER ;
+			
+			stream_audio->time_base.num = 1 ;
+			stream_audio->time_base.den = encoder_audio->sample_rate ;
+			encoder_audio->opaque = stream_audio ;
+
+			Cw2FFmpegAVDictionary encoder_options ;
+			if ( options )
+			{
+				for ( auto& i : *options )
+				{
+					av_dict_set( encoder_options, i.first.c_str(), i.second.c_str(), 0 ) ;
+				}
+			}
+
+			if ( avcodec_open2( encoder_audio, codec_audio, encoder_options ) != 0 )
+			{
+				return -1 ;
+			}
+		}
+		
+		m_audio_pts = 0 ;
+		return 0 ;
+	}
+
+	int OpenStreamIO( const char* url )
+	{
+		return m_io_file.InitIO( m_avfc_file, url ) ;
 	}
 
 	void Uninit()
 	{
 		m_io_file.FinishIO() ;
-
+		m_encoder_audio.FreeHandle() ;
 		m_encoder_video.FreeHandle() ;
-
 		m_avfc_file.FreeHandle() ;
 	}
 
 private:
-	virtual int OnSurfaceReady( IDirect3DSurface9* pSurface, Cw2TickCount& tc )
+	virtual int OnAudioReady( Cw2FFmpegAVAudioFifo& fifo )
 	{
-		if ( m_avfc_file.InvalidHandle() )
+		auto& encoder_audio = m_encoder_audio ;
+		if ( encoder_audio.InvalidHandle() )
+		{
+			return 0 ;
+		}
+
+		auto& io_file = m_io_file ;
+		auto audio_stream = (AVStream*)encoder_audio->opaque ;
+
+		while ( av_audio_fifo_size( fifo ) >= encoder_audio->frame_size )
+		{
+			Cw2FFmpegAVFrame layout_frame_audio = av_frame_alloc() ;
+			layout_frame_audio->nb_samples = encoder_audio->frame_size ;
+			layout_frame_audio->channel_layout = encoder_audio->channel_layout ;
+			layout_frame_audio->format = encoder_audio->sample_fmt ;
+			layout_frame_audio->sample_rate = encoder_audio->sample_rate ;
+			av_frame_get_buffer( layout_frame_audio, 0 ) ;
+
+			if ( av_audio_fifo_read( fifo, (void**)layout_frame_audio->data, layout_frame_audio->nb_samples ) != layout_frame_audio->nb_samples )
+			{
+				break ;
+			}
+
+			AVPacket enc_pkt ;
+			av_init_packet( &enc_pkt ) ;
+			enc_pkt.data = nullptr ;
+			enc_pkt.size = 0 ;
+			
+			layout_frame_audio->pts = m_audio_pts ;
+			m_audio_pts += layout_frame_audio->nb_samples ;
+			
+			int enc_ok = 0 ;
+			avcodec_encode_audio2( encoder_audio, &enc_pkt, layout_frame_audio, &enc_ok ) ;
+			if ( enc_ok )
+			{
+				enc_pkt.stream_index = audio_stream->index ;
+				io_file.WritePacket( enc_pkt ) ;
+			}
+			
+			av_free_packet( &enc_pkt ) ;
+		}
+		
+		return 0 ;
+	}
+
+	virtual int OnSurfaceReady( IDirect3DSurface9* pSurface )
+	{
+		if ( m_encoder_video.InvalidHandle() )
 		{
 			return 0 ;
 		}
@@ -620,7 +733,12 @@ private:
 		enc_frame.linesize[ 1 ] = encode_frame.pic.linesize[ 1 ] ;
 		enc_frame.linesize[ 2 ] = encode_frame.pic.linesize[ 2 ] ;
 
-		enc_frame.pts = int64_t( tc.TickNow() / av_q2d( video_stream->time_base ) ) ;
+		if ( m_audio_pts == 0 )
+		{
+			m_video_pts.TickNow() ;
+		}
+
+		enc_frame.pts = int64_t( m_video_pts.TickNow() / av_q2d( video_stream->time_base ) ) ;
 
 		int enc_ok = 0 ;
 		avcodec_encode_video2( encoder_video, &enc_pkt, &enc_frame, &enc_ok ) ;
@@ -637,7 +755,13 @@ private:
 
 private:
 	Cw2FFmpegAVFormatContext	m_avfc_file		;
+	
 	Cw2FFmpegAVCodecContextOpen m_encoder_video	;
+	Cw2TickCount				m_video_pts		;
+	
+	Cw2FFmpegAVCodecContextOpen m_encoder_audio	;
+	int64_t						m_audio_pts		;
+
 	Cw2FFmpegAVIOAuto			m_io_file		;
 };
 
@@ -646,28 +770,72 @@ private:
 class Cw2DrawPad : public Cw2FFSink, public Cw2FFSinkList, public IW2_IOCP_STATUS
 {
 public:
-	Cw2DrawPad() : m_vpp( this )
+	Cw2DrawPad() : m_vpp_video( this ), m_vpp_audio( this )
 	{
-		m_vpp.EnterVPP() ;
+		m_vpp_video.EnterVPP() ;
+		m_vpp_audio.EnterVPP() ;
 	}
 
 public:
 	void AddViewRect( RECT rc )
 	{
-		Cw2AutoLock< decltype( m_lock ) > lock( &m_lock ) ;
-
+		Cw2AutoLock< decltype( m_viewmap_lock ) > lock( &m_viewmap_lock ) ;
+		
 		RCSTATUS rcs ;
 		rcs.rcView = rc ;
 		rcs.nStatus = 0 ;
-		m_view_map.push_back( rcs ) ;
+		m_viewmap.push_back( rcs ) ;
 	}
 
 private:
+	virtual int OnAVFrame( Cw2FFmpegAVFrame& frame )
+	{
+		if ( this->GetSinkSize() == 0 )
+		{
+			return 0 ;
+		}
+
+		const auto nb_samples = frame->nb_samples ;
+		if ( nb_samples == 0 )
+		{
+			return 0 ;
+		}
+
+		Cw2AutoLock< decltype( m_fifo_audio_lock ) > lock( &m_fifo_audio_lock ) ;
+
+		if ( m_fifo_audio.InvalidHandle() )
+		{
+			m_fifo_audio = av_audio_fifo_alloc( (AVSampleFormat)frame->format, frame->channels, 1 ) ;
+			if ( m_fifo_audio.InvalidHandle() )
+			{
+				return 0 ;
+			}
+		}
+
+		if ( av_audio_fifo_realloc( m_fifo_audio, nb_samples ) < 0 )
+		{
+			return 0 ;
+		}
+		
+		if ( av_audio_fifo_write( m_fifo_audio, (void**)frame->data, nb_samples ) != nb_samples )
+		{
+			return 0 ;
+		}
+		
+		m_vpp_audio.PostVPP( 0, AVMEDIA_TYPE_AUDIO, nullptr ) ;
+		return 0 ;
+	}
+
 	virtual int OnRenderUpdate( IDirect3DDevice9* pRender, LPRECT pDst, LPRECT pSrc )
 	{
+		if ( this->GetSinkSize() == 0 )
+		{
+			return 0 ;
+		}
+
 		if ( UpdateViewMap( pDst ) )
 		{
-			m_vpp.PostVPP( 0, AVMEDIA_TYPE_VIDEO, pRender ) ;
+			m_vpp_video.PostVPP( 0, AVMEDIA_TYPE_VIDEO, pRender ) ;
 		}
 
 		return 0 ;
@@ -675,7 +843,7 @@ private:
 
 	bool UpdateViewMap( LPRECT pRC )
 	{
-		Cw2AutoLock< decltype( m_lock ) > lock( &m_lock ) ;
+		Cw2AutoLock< decltype( m_viewmap_lock ) > lock( &m_viewmap_lock ) ;
 
 		if ( pRC == nullptr )
 		{
@@ -684,7 +852,7 @@ private:
 
 		RECT& rc = *pRC ;
 
-		for ( auto& view : m_view_map )
+		for ( auto& view : m_viewmap )
 		{
 			if ( view.rcView.left != rc.left )
 			{
@@ -707,32 +875,24 @@ private:
 			}
 
 			view.nStatus = 1 ;
-			return IsViewMapReady() ;
+
+			for ( auto& view : m_viewmap )
+			{
+				if ( view.nStatus == 0 )
+				{
+					return false ;
+				}
+			}
+
+			for ( auto& view : m_viewmap )
+			{
+				view.nStatus = 0 ;
+			}
+
+			return true ;
 		}
 
 		return false ;
-	}
-
-	bool IsViewMapReady()
-	{
-		for ( auto& view : m_view_map )
-		{
-			if ( view.nStatus == 0 )
-			{
-				return false ;
-			}
-		}
-
-		ResetViewMap() ;
-		return true ;
-	}
-
-	void ResetViewMap()
-	{
-		for ( auto& view : m_view_map )
-		{
-			view.nStatus = 0 ;
-		}
 	}
 
 	struct RCSTATUS
@@ -754,7 +914,38 @@ private:
 
 		if ( CompletionKey == AVMEDIA_TYPE_VIDEO )
 		{
-			OnVideoPadReady( (IDirect3DDevice9*)lpOverlapped ) ;
+			auto pRender = (IDirect3DDevice9*)lpOverlapped ;
+
+			CComQIPtr< IDirect3DSurface9 > backsurface ;
+			if ( pRender->GetBackBuffer( 0, 0, D3DBACKBUFFER_TYPE_MONO, &backsurface ) != 0 )
+			{
+				return 0 ;
+			}
+
+			D3DSURFACE_DESC desc ;
+			if ( backsurface->GetDesc( &desc ) != 0 )
+			{
+				return 0 ;
+			}
+
+			CComQIPtr< IDirect3DSurface9 > copysurface ;
+			if ( pRender->CreateOffscreenPlainSurface( desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &copysurface, NULL ) != 0 )
+			{
+				return 0 ;
+			}
+
+			if ( pRender->GetRenderTargetData( backsurface, copysurface ) != 0 )
+			{
+				return 0 ;
+			}
+
+			this->Invoke_OnSurfaceReady( copysurface ) ;
+		}
+
+		else if ( CompletionKey == AVMEDIA_TYPE_AUDIO )
+		{
+			Cw2AutoLock< decltype( m_fifo_audio_lock ) > lock( &m_fifo_audio_lock ) ;
+			this->Invoke_OnAudioReady( m_fifo_audio ) ;
 		}
 
 		return 0 ;
@@ -769,40 +960,14 @@ private:
 	}
 
 private:
-	int OnVideoPadReady( IDirect3DDevice9* pRender )
-	{
-		CComQIPtr< IDirect3DSurface9 > backsurface ;
-		if ( pRender->GetBackBuffer( 0, 0, D3DBACKBUFFER_TYPE_MONO, &backsurface ) != 0 )
-		{
-			return 0 ;
-		}
-
-		D3DSURFACE_DESC desc ;
-		if ( backsurface->GetDesc( &desc ) != 0 )
-		{
-			return 0 ;
-		}
-
-		CComQIPtr< IDirect3DSurface9 > copysurface ;
-		if ( pRender->CreateOffscreenPlainSurface( desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &copysurface, NULL ) != 0 )
-		{
-			return 0 ;
-		}
-
-		if ( pRender->GetRenderTargetData( backsurface, copysurface ) != 0 )
-		{
-			return 0 ;
-		}
-
-		this->Invoke_OnSurfaceReady( copysurface, m_tc ) ;
-		return 0 ;
-	}
-
-private:
-	Cw2US_CS			m_lock		;
-	list< RCSTATUS >	m_view_map	;
-	Cw2VPP				m_vpp		;
-	Cw2TickCount		m_tc		;
+	list< RCSTATUS >		m_viewmap			;
+	Cw2US_CS				m_viewmap_lock		;
+	
+	Cw2VPP					m_vpp_video			;
+	
+	Cw2VPP					m_vpp_audio			;
+	Cw2FFmpegAVAudioFifo	m_fifo_audio		;
+	Cw2US_CS				m_fifo_audio_lock	;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -833,51 +998,69 @@ public:
 	}
 
 private:
-	virtual int OnAVFrame( Cw2FFmpegAVFrame& frame )
+	virtual int OnAVFrame( Cw2FFmpegAVFrame& src_frame )
 	{
-		AVPixelFormat fmt = (AVPixelFormat)frame->format ;
-		const int width = frame->width ;
-		const int height = frame->height ;
-
-		D3DFORMAT d3dfmt = D3DFMT_UNKNOWN ;
-		switch ( frame->format )
+		AVPixelFormat fmt = (AVPixelFormat)src_frame->format ;
+		const int width = src_frame->width ;
+		const int height = src_frame->height ;
+		if ( width == 0 || height == 0 )
 		{
-			case AV_PIX_FMT_YUYV422 :
-				d3dfmt = D3DFMT_YUY2 ;
-				break ;
+			return 0 ;
+		}
+		
+		AVFrame dst_frame = { 0 } ;
+		dst_frame.format = fmt ;
+		dst_frame.data[ 0 ] = src_frame->data[ 0 ] ;
+		dst_frame.linesize[ 0 ] = src_frame->linesize[ 0 ] ;
 
-			default :
+		Cw2FFmpegPictureFrame sws_pic ;
+
+		if ( fmt == AV_PIX_FMT_YUYV422 )
+		{
+			Cw2FFmpegSws sws ;
+			if ( !sws.Init( fmt, AV_PIX_FMT_YUYV422, width, height ) )
+			{
 				return 0 ;
+			}
+			
+			if ( sws_pic.Init( sws.m_dst.pix_fmt, sws.m_dst.width, sws.m_dst.height ) != 0 )
+			{
+				return 0 ;
+			}
+
+			if ( !sws.Scale( src_frame->data, src_frame->linesize, sws_pic.pic.data, sws_pic.pic.linesize ) )
+			{
+				return 0 ;
+			}
+			
+			dst_frame.format = sws_pic.ctx.pix_fmt ;
+			dst_frame.data[ 0 ] = sws_pic.pic.data[ 0 ] ;
+			dst_frame.linesize[ 0 ] = sws_pic.pic.linesize[ 0 ] ;
 		}
 
 		CComQIPtr< IDirect3DSurface9 > surface ;
-		if ( m_d3dev_ptr->CreateOffscreenSurface( width, height, d3dfmt, &surface ) != 0 )
+		if ( m_d3dev_ptr->CreateOffscreenSurface( width, height, D3DFMT_YUY2, &surface ) != 0 )
 		{
 			return 0 ;
 		}
 
-		switch ( d3dfmt )
+		if ( true )
 		{
-			case D3DFMT_YUY2 :
+			D3DLOCKED_RECT d3dlr = { 0 } ;
+			if ( surface->LockRect( &d3dlr, NULL, D3DLOCK_DONOTWAIT ) == 0 )
 			{
-				D3DLOCKED_RECT d3dlr = { 0 } ;
-				if ( surface->LockRect( &d3dlr, NULL, D3DLOCK_DONOTWAIT ) == 0 )
-				{
-					AVPicture dst_pic = { 0 } ;
-					dst_pic.data[ 0 ] = (byte*)d3dlr.pBits ;
-					dst_pic.linesize[ 0 ] = d3dlr.Pitch ;
-
-					av_image_copy( dst_pic.data,
-						dst_pic.linesize,
-						(const uint8_t**)frame->data,
-						frame->linesize,
-						fmt, width, height ) ;
-
-					surface->UnlockRect() ;
-				}
+				AVPicture dst_pic = { 0 } ;
+				dst_pic.data[ 0 ] = (byte*)d3dlr.pBits ;
+				dst_pic.linesize[ 0 ] = d3dlr.Pitch ;
+				
+				av_image_copy( dst_pic.data,
+					dst_pic.linesize,
+					(const uint8_t**)dst_frame.data,
+					dst_frame.linesize,
+					(AVPixelFormat)dst_frame.format, width, height ) ;
+				
+				surface->UnlockRect() ;
 			}
-
-			break ;
 		}
 
 		if ( m_d3dev_ptr->UpdateBackSurface( surface, &m_rc ) == 0 )
@@ -913,13 +1096,15 @@ public:
 	}
 
 public:
-	int OpenCam( const char* cam_id, const int width, const int height, const char* _p = "yuyv422" )
+	int OpenCam( const char* cam_id, const int width, const int height,
+		const char* _v = "mjpeg",
+		const char* _p = nullptr )
 	{
 		if ( m_avfc_cam.InvalidHandle() && m_vdecoder_cam.InvalidHandle() )
 		{
 			auto _s = WSL2_String_FormatA( "%dx%d", width, height ) ;
 
-			if ( OpenCam( cam_id, _s.c_str(), _p ) == 0 )
+			if ( OpenCam( cam_id, _s.c_str(), _v, _p ) == 0 )
 			{
 				m_engine.EngineStart() ;
 				return 0 ;
@@ -946,7 +1131,7 @@ private:
 	}
 
 private:
-	int OpenCam( const char* cam_id, const char* _s, const char* _p )
+	int OpenCam( const char* cam_id, const char* _s, const char* _v, const char* _p )
 	{
 		auto& vdecoder_cam = m_vdecoder_cam ;
 		auto& avfc_cam = m_avfc_cam ;
@@ -967,6 +1152,11 @@ private:
 			}
 
 			// av_dict_set( avif_options, "framerate", _r, 0 ) ;
+
+			if ( _v )
+			{
+				av_dict_set( avif_options, "vcodec", _v, 0 ) ;
+			}
 
 			if ( _p )
 			{
@@ -1083,6 +1273,192 @@ private:
 	Cw2FFmpegAVFormatContext	m_avfc_cam			;
 	Cw2FFmpegAVCodecContextOpen	m_vdecoder_cam		;
 	Cw2FFmpegAVFrame			m_frame_video_cam	;
+
+private:
+	Cw2ThreadEngine2			m_engine			;
+};
+
+//////////////////////////////////////////////////////////////////////////
+
+class Cw2OpenAudioCapture : public IThreadEngine2Routine, public Cw2FFSinkList
+{
+public:
+	Cw2OpenAudioCapture() : m_engine( this )
+	{
+
+	}
+
+	~Cw2OpenAudioCapture()
+	{
+		CloseAudioCapture() ;
+	}
+
+public:
+	int OpenAudioCapture( const char* ac_id )
+	{
+		if ( m_avfc_ac.InvalidHandle() && m_adecoder_ac.InvalidHandle() )
+		{
+			string sid = WSL2_String_FormatA( "audio=%s", ac_id ) ;
+			wstring wsid = WSL2_String2W( sid.c_str() ) ;
+			auto uid = WSL2_String2UTF8( wsid.c_str() ) ;
+			if ( OpenAudioCapture2( uid.get() ) == 0 )
+			{
+				m_engine.EngineStart() ;
+				return 0 ;
+			}
+		}
+		
+		return -1 ;
+	}
+
+	void CloseAudioCapture()
+	{
+		m_engine.EngineStop() ;
+		
+		m_frame_audio_ac.FreeHandle() ;
+		m_adecoder_ac.FreeHandle() ;
+		m_avfc_ac.FreeHandle() ;
+	}
+
+	AVCodecContext* GetAudioDecoder()
+	{
+		return m_adecoder_ac ;
+	}
+
+private:
+	virtual int OnEngineRoutine( DWORD tid )
+	{
+		this->ReadPacket() ;
+		return 0 ;
+	}
+
+private:
+	int OpenAudioCapture2( const char* ac_id )
+	{
+		auto& avfc_ac = m_avfc_ac ;
+		auto& adecoder_ac = m_adecoder_ac ;
+		auto& frame_audio_ac = m_frame_audio_ac ;
+
+		try
+		{
+			auto avif_dshow_ptr = av_find_input_format( "dshow" ) ;
+			if ( avif_dshow_ptr == nullptr )
+			{
+				throw -1 ;
+			}
+
+			if ( avformat_open_input( avfc_ac, ac_id, avif_dshow_ptr, nullptr ) != 0 )
+			{
+				throw -1 ;
+			}
+
+			if ( avformat_find_stream_info( avfc_ac, nullptr ) < 0 )
+			{
+				throw -1 ;
+			}
+
+			for ( decltype( avfc_ac->nb_streams ) stream_idx = 0 ; stream_idx < avfc_ac->nb_streams ; ++stream_idx )
+			{
+				auto avcc = avfc_ac->streams[ stream_idx ]->codec ;
+				if ( avcc->codec_type == AVMEDIA_TYPE_AUDIO )
+				{
+					if ( avcodec_open2( avcc, avcodec_find_decoder( avcc->codec_id ), nullptr ) != 0 )
+					{
+						throw -1 ;
+					}
+
+					avcc->opaque = (void*)stream_idx ;
+					adecoder_ac = avcc ;
+					break ;
+				}
+			}
+
+			frame_audio_ac = av_frame_alloc() ;
+			if ( frame_audio_ac.InvalidHandle() )
+			{
+				throw -1 ;
+			}
+		}
+
+		catch( ... )
+		{
+			frame_audio_ac.FreeHandle() ;
+			adecoder_ac.FreeHandle() ;
+			avfc_ac.FreeHandle() ;
+			return -1 ;
+		}
+
+		return 0 ;
+	}
+
+	int ReadPacket()
+	{
+		auto& avfc_ac = m_avfc_ac ;
+		auto& adecoder_ac = m_adecoder_ac ;
+		auto& frame_audio_ac = m_frame_audio_ac ;
+
+		if ( true )
+		{
+			AVPacket pkt ;
+			av_init_packet( &pkt ) ;
+			pkt.data = nullptr ;
+			pkt.size = 0 ;
+			if ( av_read_frame( avfc_ac, &pkt ) >= 0 )
+			{
+				auto orig_pkt = pkt ;
+
+				do
+				{
+					auto ret = this->DecodePacket( pkt ) ;
+					if ( ret < 0 )
+					{
+						break ;
+					}
+
+					pkt.data += ret ;
+					pkt.size -= ret ;
+
+				} while( pkt.size > 0 ) ;
+
+				av_free_packet( &orig_pkt ) ;
+			}
+		}
+
+		return 0 ;
+	}
+
+	int DecodePacket( AVPacket& pkt )
+	{
+		auto& adecoder_ac = m_adecoder_ac ;
+		auto& frame_audio_ac = m_frame_audio_ac ;
+
+		int decoded = pkt.size ;
+		auto audio_stream_index = (int)adecoder_ac->opaque ;
+
+		if ( audio_stream_index == pkt.stream_index )
+		{
+			int got_frame = 0 ;
+			auto ret = avcodec_decode_audio4( adecoder_ac, frame_audio_ac, &got_frame, &pkt ) ;
+			if ( ret < 0 )
+			{
+				return ret ;
+			}
+			
+			if ( got_frame )
+			{
+				this->Invoke_OnAVFrame( frame_audio_ac ) ;
+			}
+			
+			decoded = FFMIN( ret, pkt.size ) ;
+		}
+
+		return decoded ;
+	}
+
+private:
+	Cw2FFmpegAVFormatContext	m_avfc_ac			;
+	Cw2FFmpegAVCodecContextOpen	m_adecoder_ac		;
+	Cw2FFmpegAVFrame			m_frame_audio_ac	;
 
 private:
 	Cw2ThreadEngine2			m_engine			;

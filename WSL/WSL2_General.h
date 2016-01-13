@@ -93,6 +93,23 @@ inline string WSL2_String2A( _In_ const wchar_t* wstr )
 	return "" ;
 }
 
+inline shared_ptr<char> WSL2_String2UTF8( _In_ const wchar_t* wstr )
+{
+	shared_ptr<char> ret ;
+
+	const int nNeedSize = WideCharToMultiByte( CP_UTF8, 0, wstr, -1, NULL, 0, NULL, NULL ) ;
+	if ( nNeedSize > 0 )
+	{
+		ret.reset( new char[ nNeedSize ] ) ;
+		if ( ret )
+		{
+			WideCharToMultiByte( CP_UTF8, 0, wstr, -1, ret.get(), nNeedSize, NULL, NULL ) ;
+		}
+	}
+
+	return ret ;
+}
+
 //////////////////////////////////////////////////////////////////////////
 
 inline wstring WSL2_String_FormatWCore( _In_ const wchar_t* format, va_list args )

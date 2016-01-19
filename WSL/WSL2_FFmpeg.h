@@ -339,6 +339,11 @@ __interface IW2_FFSINK
 	virtual int OnAudioReady( Cw2FFmpegAVAudioFifo& fifo ) = 0 ;
 };
 
+__interface IW2_FFUSERSINK
+{
+	virtual int OnDrawPadDC( HDC dc, D3DSURFACE_DESC desc ) = 0 ;
+};
+
 class Cw2FFSink : public IW2_FFSINK
 {
 public:
@@ -777,6 +782,8 @@ class Cw2DrawPad : public Cw2FFSink, public Cw2FFSinkList, public IW2_IOCP_STATU
 public:
 	Cw2DrawPad() : m_vpp_video( this ), m_vpp_audio( this )
 	{
+		m_user_sink_ptr = nullptr ;
+
 		m_vpp_video.EnterVPP() ;
 		m_vpp_audio.EnterVPP() ;
 	}
@@ -790,6 +797,11 @@ public:
 		rcs.rcView = rc ;
 		rcs.nStatus = 0 ;
 		m_viewmap.push_back( rcs ) ;
+	}
+
+	void SetUserSink( IW2_FFUSERSINK* ptr )
+	{
+		m_user_sink_ptr = ptr ;
 	}
 
 private:
@@ -944,6 +956,21 @@ private:
 				return 0 ;
 			}
 
+			if ( m_user_sink_ptr )
+			{
+				HDC copy_dc = NULL ;
+				if ( copysurface->GetDC( &copy_dc ) == 0 )
+				{
+					D3DSURFACE_DESC desc ;
+					if ( copysurface->GetDesc( &desc ) == 0 )
+					{
+						m_user_sink_ptr->OnDrawPadDC( copy_dc, desc ) ;
+					}
+					
+					copysurface->ReleaseDC( copy_dc ) ;
+				}
+			}
+			
 			this->Invoke_OnSurfaceReady( copysurface ) ;
 		}
 
@@ -973,6 +1000,8 @@ private:
 	Cw2VPP					m_vpp_audio			;
 	Cw2FFmpegAVAudioFifo	m_fifo_audio		;
 	Cw2US_CS				m_fifo_audio_lock	;
+
+	IW2_FFUSERSINK*			m_user_sink_ptr		;
 };
 
 //////////////////////////////////////////////////////////////////////////
